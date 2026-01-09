@@ -1,68 +1,54 @@
-import tkinter as tk
-from tkinter import messagebox, ttk
+import streamlit as st
 import yfinance as yf
 import requests
 
-def get_data():
-    ticker_name = entry_stock.get().upper()
-    try:
-        # 1. 抓取股價 (取最後一個交易日的收盤價)
-        stock = yf.Ticker(ticker_name)
-        df = stock.history(period="2d")
-        if df.empty:
-            messagebox.showerror("錯誤", "找不到該股票代碼")
-            return
-        
-        price = df['Close'].iloc[-1]
-        label_price_val.config(text=f"${price:.2f}")
-        
-        # 2. 計算總價
-        shares = float(entry_shares.get() or 0)
-        total_usd = price * shares
-        label_total_val.config(text=f"${total_usd:,.2f} USD")
-        
-        # 3. 匯率換算 (抓取即時匯率)
-        rate_res = requests.get("https://api.exchangerate-api.com/v4/latest/USD").json()
-        rates = rate_res.get("rates", {})
-        
-        twd = total_usd * rates.get("TWD", 32.5)
-        cny = total_usd * rates.get("CNY", 7.2)
-        jpy = total_usd * rates.get("JPY", 150.0)
-        
-        label_rates.config(text=f"台幣 (TWD): {twd:,.0f} 元\n人民幣 (CNY): {cny:,.2f} 元\n日圓 (JPY): {jpy:,.0f} ￥")
-        
-    except Exception as e:
-        messagebox.showerror("錯誤", f"發生問題: {str(e)}")
+# 網頁基礎設定
+st.set_page_config(page_title="美股資產計算器", layout="centered")
 
-# 建立視窗介面
-root = tk.Tk()
-root.title("美股資產計算器")
-root.geometry("400x500")
-root.padx = 20
+st.title("📈 美股資產換算工具")
 
-# 介面排版
-ttk.Label(root, text="第一格：輸入股票代號 (如 AMD, TSLA)").pack(pady=10)
-entry_stock = ttk.Entry(root, font=("Arial", 12))
-entry_stock.pack()
+# 第一格：股票代號輸入
+stock_id = st.text_input("第一格：輸入股票代號 (如: AMD, TSLA, MU)", "AMD").upper()
 
-ttk.Label(root, text="第二格：昨收盤價格").pack(pady=10)
-label_price_val = ttk.Label(root, text="---", font=("Arial", 14, "bold"), foreground="blue")
-label_price_val.pack()
+# 第二格：獲取昨日收盤價
+try:
+    ticker = yf.Ticker(stock_id)
+    # 取最近兩天的資料
+    hist = ticker.history(period="2d")
+    if not hist.empty:
+        last_price = hist['Close'].iloc[-1]
+        st.info(f"第二格：{stock_id} 昨天收盤價為 **${last_price:.2f} USD**")
+    else:
+        st.error("找不到該股票代號，請重新輸入。")
+        last_price = 0
+except Exception as e:
+    st.error(f"連線失敗: {e}")
+    last_price = 0
 
-ttk.Label(root, text="第三格：輸入持有股數").pack(pady=10)
-entry_shares = ttk.Entry(root, font=("Arial", 12))
-entry_shares.insert(0, "1")
-entry_shares.pack()
+# 第三格：股數輸入
+shares = st.number_input("第三格：輸入持有股數", min_value=0.0, value=1.0, step=1.0)
 
-btn_calc = ttk.Button(root, text="執行計算 (含匯率轉換)", command=get_data)
-btn_calc.pack(pady=20)
+# 第四格：總價格計算
+total_usd = last_price * shares
+st.success(f"第四格：總價值約為 **${total_usd:,.2f} USD**")
 
-ttk.Label(root, text="第四格：美金總價格").pack(pady=5)
-label_total_val = ttk.Label(root, text="---", font=("Arial", 14, "bold"), foreground="green")
-label_total_val.pack()
+st.divider()
 
-ttk.Label(root, text="多國匯率換算結果:").pack(pady=15)
-label_rates = ttk.Label(root, text="", justify="left", font=("Microsoft JhengHei", 10))
-label_rates.pack()
+# 額外功能：匯率換算
+st.subheader("多國匯率換算")
+try:
+    # 獲取即時匯率 API
+    response = requests.get("https://api.exchangerate-api.com/v4/latest/USD")
+    rates = response.json().get("rates", {})
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("台幣 (TWD)", f"{total_usd * rates.get('TWD', 32.5):,.0f}")
+    with col2:
+        st.metric("人民幣 (CNY)", f"{total_usd * rates.get('CNY', 7.2):,.2f}")
+    with col3:
+        st.metric("日圓 (JPY)", f"{total_usd * rates.get('JPY', 150):,.0f}")
+except:
+    st.write("暫時無法取得最新匯率，請稍後再試。")
 
-root.mainloop()
+st.caption("數據來源: Yahoo Finance & ExchangeRate API")
