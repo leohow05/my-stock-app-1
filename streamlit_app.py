@@ -1,57 +1,79 @@
 import streamlit as st
 import yfinance as yf
+import pandas as pd
 
 # 設定網頁標題
-st.set_page_config(page_title="美股百分比自訂計算器", layout="centered")
+st.set_page_config(page_title="美股多股對比工具", layout="wide")
 
-st.title("📊 美股價格與自訂百分比計算")
+st.title("📊 美股多股對比與百分比試算")
 
-# 1. 股票代號輸入
-stock_id = st.text_input("1. 輸入股票代號 (例如: AMD, TSLA, MU)", "AMD").upper()
+# --- 第一區塊：輸入設定 ---
+st.subheader("1. 設定股票與百分比")
+col_input1, col_input2 = st.columns([2, 1])
 
-# 2. 獲取昨日收盤價
-last_price = 0
-try:
-    ticker = yf.Ticker(stock_id)
-    hist = ticker.history(period="2d")
-    if not hist.empty:
-        last_price = hist['Close'].iloc[-1]
-        st.info(f"2. {stock_id} 昨天收盤價：**${last_price:.2f} USD**")
-    else:
-        st.warning("找不到此代號，請檢查輸入是否正確。")
-except Exception as e:
-    st.error(f"數據抓取失敗：{e}")
+with col_input1:
+    # 修改後的標籤文字，且預設值改為空白 ""
+    stock_inputs = st.text_input("輸入名稱 (例如: TSLA AMD NVDA，多個代號請用空白隔開)", "").upper()
+    # 處理字串轉換成列表
+    stock_list = [s.strip() for s in stock_inputs.replace(',', ' ').split() if s.strip()][:3]
 
-# 3. 輸入持有股數
-shares = st.number_input("3. 輸入持有股數", min_value=0.0, value=1.0, step=1.0)
-total_usd = last_price * shares
-st.success(f"4. 總價值：**${total_usd:,.2f} USD**")
+with col_input2:
+    # 讓使用者自訂計算百分比
+    target_pct = st.number_input("設定計算百分比 (%)", value=65.0, step=0.1)
 
-st.divider()
+# --- 第二區塊：抓取數據與計算 ---
+if stock_list:
+    data_rows = []
+    
+    for symbol in stock_list:
+        try:
+            ticker = yf.Ticker(symbol)
+            # 抓取最近兩天資料以獲取昨收價
+            hist = ticker.history(period="2d")
+            if not hist.empty:
+                last_price = hist['Close'].iloc[-1]
+                pct_price = last_price * (target_pct / 100)
+                
+                # 將結果存入清單
+                data_rows.append({
+                    "股票代號": symbol,
+                    "昨日收盤價 (USD)": round(last_price, 2),
+                    f"{target_pct}% 價格 (USD)": round(pct_price, 2),
+                    "狀態": "✅ 正常"
+                })
+            else:
+                data_rows.append({"股票代號": symbol, "狀態": "❌ 找不到代號"})
+        except Exception:
+            data_rows.append({"股票代號": symbol, "狀態": "⚠️ 連線出錯"})
 
-# --- 自行選擇百分比區塊 ---
-st.subheader("🎯 自訂百分比試算 (昨日收盤價 × %)")
-st.write("您可以直接點擊下方的數字進行修改：")
+    # 轉換成 Pandas DataFrame
+    df = pd.DataFrame(data_rows)
 
-# 建立三列並排的輸入框
-col1, col2, col3 = st.columns(3)
+    # --- 第三區塊：顯示結果表格 ---
+    st.divider()
+    st.subheader(f"2. 對比結果表格 ({target_pct}%)")
+    
+    # 使用 dataframe 顯示漂亮表格
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
-with col1:
-    # 使用 number_input 讓使用者可以自行輸入百分比
-    p1 = st.number_input("自訂百分比 1 (%)", value=65.0, step=0.1, key="p1_input")
-    res1 = last_price * (p1 / 100)
-    st.metric(f"計算結果 ({p1}%)", f"${res1:.2f}")
+    # --- 第四區塊：詳細計算卡片 ---
+    st.divider()
+    st.subheader("3. 快速預覽")
+    cols = st.columns(len(stock_list))
+    for i, row in enumerate(data_rows):
+        if "昨日收盤價 (USD)" in row:
+            with cols[i]:
+                st.metric(
+                    label=row["股票代號"], 
+                    value=f"${row['昨日收盤價 (USD)']}", 
+                    delta=f"{target_pct}%: ${row[f'{target_pct}% 價格 (USD)']}",
+                    delta_color="normal"
+                )
 
-with col2:
-    p2 = st.number_input("自訂百分比 2 (%)", value=75.0, step=0.1, key="p2_input")
-    res2 = last_price * (p2 / 100)
-    st.metric(f"計算結果 ({p2}%)", f"${res2:.2f}")
+else:
+    # 如果還沒輸入名稱時顯示的提示
+    st.info("💡 請在上方輸入框輸入股票代號（例如：NVDA AAPL GOOGL）來開始計算。")
 
-with col3:
-    p3 = st.number_input("自訂百分比 3 (%)", value=85.0, step=0.1, key="p3_input")
-    res3 = last_price * (p3 / 100)
-    st.metric(f"計算結果 ({p3}%)", f"${res3:.2f}")
+st.caption("數據來源：Yahoo Finance。表格會根據您輸入的百分比即時連動計算。")
 
-st.markdown("---")
-st.caption("提示：您可以點擊輸入框旁邊的 + 或 -，或是直接輸入數字後按 Enter 即可完成計算。")
 
